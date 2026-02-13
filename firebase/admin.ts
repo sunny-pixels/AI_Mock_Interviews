@@ -1,26 +1,55 @@
-import { initializeApp, getApps, cert } from "firebase-admin/app";
-import { getAuth } from "firebase-admin/auth";
-import { getFirestore } from "firebase-admin/firestore";
+import { initializeApp, getApps, cert, App } from "firebase-admin/app";
+import { getAuth, Auth } from "firebase-admin/auth";
+import { getFirestore, Firestore } from "firebase-admin/firestore";
 
-// Initialize Firebase Admin SDK
-function initFirebaseAdmin() {
+// Initialize Firebase Admin SDK lazily
+function initFirebaseAdmin(): App {
   const apps = getApps();
 
-  if (!apps.length) {
-    initializeApp({
-      credential: cert({
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        // Replace newlines in the private key
-        privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-      }),
-    });
+  if (apps.length > 0) {
+    return apps[0];
   }
 
-  return {
-    auth: getAuth(),
-    db: getFirestore(),
-  };
+  const projectId = process.env.FIREBASE_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+  const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n");
+
+  if (!projectId || !clientEmail || !privateKey) {
+    throw new Error(
+      `Missing Firebase credentials. Check your .env.local file. ` +
+      `projectId: ${!!projectId}, clientEmail: ${!!clientEmail}, privateKey: ${!!privateKey}`
+    );
+  }
+
+  return initializeApp({
+    credential: cert({
+      projectId: projectId,
+      clientEmail: clientEmail,
+      privateKey: privateKey,
+    }),
+  });
 }
 
-export const { auth, db } = initFirebaseAdmin();
+// Lazy getters for auth and db
+export const getAdminAuth = (): Auth => {
+  initFirebaseAdmin();
+  return getAuth();
+};
+
+export const getAdminDB = (): Firestore => {
+  initFirebaseAdmin();
+  return getFirestore();
+};
+
+// For backward compatibility, export auth and db as getters
+export const auth = new Proxy({} as Auth, {
+  get: (target, prop) => {
+    return getAdminAuth()[prop as keyof Auth];
+  }
+});
+
+export const db = new Proxy({} as Firestore, {
+  get: (target, prop) => {
+    return getAdminDB()[prop as keyof Firestore];
+  }
+});
